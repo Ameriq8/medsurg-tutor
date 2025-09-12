@@ -1,0 +1,2 @@
+textbook/*.pdf filter=lfs diff=lfs merge=lfs -text
+indexes/*.faiss filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+  <head>
+    <meta charset="utf-8" />
+    <title>Textbook RAG Chatbot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Tailwind (dark-first) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              bg: { DEFAULT: "#0b0f16", 2: "#0f1522" },
+              panel: { DEFAULT: "#121826", 2: "#182132" },
+              text: { DEFAULT: "#edf2ff", dim: "#a9b4ce", mute: "#7a86a6" },
+              brand: { 500: "#5b7cfa", 600: "#4f6cf0", 700: "#425bd8" },
+              chip: { DEFAULT: "#222b3e", ring: "#334163" },
+            },
+            boxShadow: {
+              soft: "0 1px 2px rgba(0,0,0,.25), 0 10px 30px rgba(0,0,0,.35)",
+            },
+            borderColor: {
+              panel: "#27324a",
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- Markdown + sanitize -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+
+    <style>
+      /* Markdown polish (dark) */
+      .prose {
+        color: #edf2ff;
+      }
+      .prose h2 {
+        font-size: 1.125rem;
+        font-weight: 700;
+        border-bottom: 1px solid #27324a;
+        padding-bottom: 0.25rem;
+        margin: 1rem 0 0.5rem;
+      }
+      .prose h3 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0.75rem 0 0.25rem;
+      }
+      .prose p {
+        line-height: 1.7;
+        margin: 0.4rem 0;
+      }
+      .prose ul {
+        list-style: disc;
+        padding-left: 1.25rem;
+      }
+      .prose ol {
+        list-style: decimal;
+        padding-left: 1.25rem;
+      }
+      .prose code {
+        background: #0f1522;
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.35rem;
+        border: 1px solid #27324a;
+      }
+      .prose pre {
+        background: #0f1522;
+        border: 1px solid #27324a;
+        border-radius: 0.75rem;
+        padding: 0.9rem 1rem;
+        overflow: auto;
+      }
+      .prose table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.95rem;
+      }
+      .prose th,
+      .prose td {
+        border: 1px solid #27324a;
+        padding: 0.45rem 0.6rem;
+      }
+      .prose blockquote {
+        border-left: 3px solid #334163;
+        padding-left: 0.8rem;
+        color: #a9b4ce;
+      }
+      /* chips / icons */
+      .icon {
+        width: 18px;
+        height: 18px;
+        display: inline-block;
+        vertical-align: -3px;
+      }
+      .ref-chip {
+        background: #222b3e;
+        border: 1px solid #334163;
+      }
+      .ref-chip:hover {
+        background: #26324a;
+      }
+      .btn-ghost {
+        border: 1px solid #334163;
+        background: #192235;
+      }
+      .btn-ghost:hover {
+        background: #1e2940;
+      }
+    </style>
+  </head>
+
+  <body class="h-full bg-bg text-text">
+    <div class="flex flex-col h-full">
+      <!-- Header (ChatGPT-like minimal) -->
+      <header
+        class="sticky top-0 z-10 border-b border-panel/80 bg-bg/70 backdrop-blur"
+      >
+        <div class="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
+          <div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+          <h1 class="text-sm sm:text-base font-semibold tracking-tight">
+            Textbook RAG Chatbot
+          </h1>
+          <span class="ml-2 hidden sm:inline text-xs text-text-dim"
+            >Local answers from your textbooks</span
+          >
+          <div class="ml-auto flex items-center gap-2">
+            <a
+              class="text-xs text-text-mute hover:text-text-dim"
+              href="/api/health"
+              >health</a
+            >
+          </div>
+        </div>
+      </header>
+
+      <!-- Main -->
+      <main id="chat" class="flex-1 overflow-y-auto">
+        <div id="thread" class="mx-auto max-w-3xl px-3 sm:px-4 py-8 space-y-6">
+          <!-- Welcome panel -->
+          <section id="welcome" class="mx-auto max-w-2xl">
+            <div
+              class="rounded-3xl border border-panel bg-panel shadow-soft p-6 sm:p-8 text-center"
+            >
+              <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">
+                Welcome
+              </h2>
+              <p class="mt-2 text-sm text-text-dim">
+                Ask anything from your textbooks. Answers arrive as clean
+                Markdown with summaries, key points, and details.
+              </p>
+              <div class="mt-6 grid gap-3 sm:grid-cols-3 text-left">
+                <button
+                  class="ex px-4 py-3 rounded-xl border border-panel bg-bg hover:bg-panel transition"
+                >
+                  Explain <b>leukemia</b> in detail
+                </button>
+                <button
+                  class="ex px-4 py-3 rounded-xl border border-panel bg-bg hover:bg-panel transition"
+                >
+                  What are the <b>principles of nursing practice</b>?
+                </button>
+                <button
+                  class="ex px-4 py-3 rounded-xl border border-panel bg-bg hover:bg-panel transition"
+                >
+                  Summarize <b>perioperative concepts</b>
+                </button>
+              </div>
+              <p class="mt-6 text-xs text-text-mute">
+                Tip: Press
+                <kbd class="px-1 py-0.5 border border-panel rounded bg-bg"
+                  >Enter</kbd
+                >
+                to send,
+                <kbd class="px-1 py-0.5 border border-panel rounded bg-bg"
+                  >Shift</kbd
+                >+<kbd class="px-1 py-0.5 border border-panel rounded bg-bg"
+                  >Enter</kbd
+                >
+                for newline.
+              </p>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <!-- Composer -->
+      <footer class="border-t border-panel bg-bg">
+        <div class="mx-auto max-w-3xl px-3 sm:px-4 py-3">
+          <form id="askForm" class="flex items-end gap-2">
+            <textarea
+              id="q"
+              rows="1"
+              placeholder="Ask anything…"
+              class="flex-1 resize-none max-h-48 rounded-2xl border border-panel bg-panel px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-600 text-text"
+            ></textarea>
+            <button
+              id="sendBtn"
+              class="rounded-2xl bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 disabled:opacity-50"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Assistant bubble -->
+    <template id="tpl-assistant">
+      <div class="flex items-start gap-3">
+        <div
+          class="shrink-0 h-8 w-8 rounded-full grid place-items-center bg-brand-600 text-white font-semibold"
+        >
+          A
+        </div>
+        <div class="relative w-full">
+          <div class="rounded-2xl border border-panel bg-panel shadow-soft p-4">
+            <div class="prose max-w-none text-[15px] leading-relaxed"></div>
+            <div class="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                class="btn-copy btn-ghost text-xs px-2 py-1 rounded flex items-center gap-1"
+              >
+                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M8 8h10v10H8z" stroke="#a9b4ce" stroke-width="1.5" />
+                  <path
+                    d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                    stroke="#a9b4ce"
+                    stroke-width="1.5"
+                  />
+                </svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- User bubble -->
+    <template id="tpl-user">
+      <div class="flex items-start gap-3 justify-end">
+        <div
+          class="relative max-w-[80%] rounded-2xl bg-brand-600 text-white px-4 py-3 shadow-soft"
+        >
+          <div
+            class="prose prose-invert max-w-none text-[15px] leading-relaxed"
+          ></div>
+        </div>
+        <div
+          class="shrink-0 h-8 w-8 rounded-full grid place-items-center bg-chip text-text font-semibold"
+        >
+          U
+        </div>
+      </div>
+    </template>
+
+    <!-- Thinking bubble -->
+    <template id="tpl-thinking">
+      <div class="flex items-start gap-3">
+        <div
+          class="shrink-0 h-8 w-8 rounded-full grid place-items-center bg-brand-600 text-white font-semibold"
+        >
+          A
+        </div>
+        <div
+          class="rounded-2xl border border-panel bg-panel shadow-soft px-4 py-3 w-full"
+        >
+          <div class="flex items-center gap-2 text-sm text-text-dim">
+            <span
+              class="inline-block h-2 w-2 animate-pulse rounded-full bg-text-dim"
+            ></span>
+            Thinking…
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      // ------- helpers -------
+      const $ = (s, r = document) => r.querySelector(s);
+      const thread = $("#thread");
+      const form = $("#askForm");
+      const qEl = $("#q");
+      const sendBtn = $("#sendBtn");
+      const K_DEFAULT = 8;
+
+      marked.setOptions({ gfm: true, breaks: true });
+      const renderMD = (md) =>
+        DOMPurify.sanitize(marked.parse(md || ""), {
+          USE_PROFILES: { html: true },
+        });
+
+      const scrollBottom = () => {
+        const c = $("#chat");
+        c.scrollTop = c.scrollHeight;
+      };
+
+      const clone = (id) =>
+        document.querySelector(id).content.firstElementChild.cloneNode(true);
+
+      function enhanceDefinitionSection(root) {
+        // find H2 titled "Definition"
+        const h2s = root.querySelectorAll("h2");
+        for (const h2 of h2s) {
+          if (h2.textContent.trim().toLowerCase() === "definition") {
+            // wrap h2 + following siblings until next H2
+            const wrap = document.createElement("div");
+            // wrap.className = "def-card";
+            h2.parentNode.insertBefore(wrap, h2);
+            wrap.appendChild(h2);
+
+            let n = h2.nextSibling;
+            while (n && !(n.nodeType === 1 && n.tagName === "H2")) {
+              const next = n.nextSibling;
+              wrap.appendChild(n);
+              n = next;
+            }
+
+            // make the first paragraph the bold one-liner
+            const firstP = wrap.querySelector("p");
+            if (firstP) firstP.classList.add("def-line");
+          }
+        }
+      }
+
+      const bubbleUser = (md) => {
+        const el = clone("#tpl-user");
+        el.querySelector(".prose").innerHTML = renderMD(md);
+        thread.appendChild(el);
+        scrollBottom();
+        return el;
+      };
+
+      const bubbleAssistant = (md) => {
+        const el = clone("#tpl-assistant");
+        const prose = el.querySelector(".prose");
+        prose.innerHTML = renderMD(md);
+
+        // prettify Definition section
+        enhanceDefinitionSection(prose);
+
+        thread.appendChild(el);
+        scrollBottom();
+        return el;
+      };
+
+      async function copyTextReliable(text) {
+        // Try modern API
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        // Fallback: hidden textarea + execCommand
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.left = "-1000px";
+        ta.setAttribute("readonly", "");
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) throw new Error("copy failed");
+      }
+
+      // One listener for all future bubbles
+      thread.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".btn-copy");
+        if (!btn) return;
+
+        const card =
+          btn.closest("[data-assistant-card]") || btn.closest(".relative");
+        const prose = card?.querySelector(".prose");
+        const text = prose ? prose.innerText : "";
+        const old = btn.innerHTML;
+
+        try {
+          await copyTextReliable(text);
+          btn.textContent = "Copied";
+        } catch {
+          btn.textContent = "Copy failed";
+        } finally {
+          setTimeout(() => (btn.innerHTML = old), 1200);
+        }
+      });
+
+      const bubbleThinking = () => {
+        const el = clone("#tpl-thinking");
+        thread.appendChild(el);
+        scrollBottom();
+        return el;
+      };
+
+      const escapeHTML = (s) =>
+        (s || "").replace(
+          /[&<>"']/g,
+          (m) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            }[m])
+        );
+
+      // remove welcome on first message
+      const nukeWelcome = () => {
+        const w = $("#welcome");
+        if (w) w.remove();
+      };
+
+      // Enter to send
+      qEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      // auto-grow
+      qEl.addEventListener("input", () => {
+        qEl.style.height = "auto";
+        qEl.style.height = Math.min(qEl.scrollHeight, 200) + "px";
+      });
+
+      // examples
+      document.addEventListener("click", (e) => {
+        const ex = e.target.closest(".ex");
+        if (!ex) return;
+        qEl.value = ex.textContent.trim();
+        qEl.focus();
+      });
+
+      // ------- submit -------
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const question = qEl.value.trim();
+        if (!question) return;
+
+        nukeWelcome();
+        bubbleUser(question);
+        qEl.value = "";
+        qEl.style.height = "auto";
+
+        sendBtn.disabled = true;
+        const waitEl = bubbleThinking();
+
+        try {
+          const r = await fetch("/api/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, k: K_DEFAULT }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({ detail: r.statusText }));
+            throw new Error(err.detail || "Request failed");
+          }
+          const data = await r.json();
+          waitEl.remove();
+          // show answer + references (if backend returns them)
+          bubbleAssistant(data.answer || "", data.sources || []);
+        } catch (err) {
+          waitEl.remove();
+          bubbleAssistant(`**Error:** ${escapeHTML(err.message)}`);
+        } finally {
+          sendBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
